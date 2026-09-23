@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Face Dot Art</title>
+<style>
+  :root{
+    --bg:#05070a;
+    --panel:#0d1117;
+    --line:#1c2430;
+    --cyan:#28e0d0;
+    --magenta:#ff3d9a;
+    --yellow:#ffd23f;
+    --text:#e7ecf2;
+    --muted:#7c8a9c;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow:hidden;
+  }
+  .stage{
+    position:relative;
+    width:100vw;
+    height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  video{
+    display:none;
+  }
+  canvas{
+    max-width:100%;
+    max-height:100%;
+    border-radius:4px;
+    box-shadow:0 0 0 1px var(--line), 0 20px 60px rgba(0,0,0,0.6);
+    background:#000;
+  }
+  .hud{
+    position:absolute;
+    top:18px;
+    left:18px;
+    right:18px;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    pointer-events:none;
+  }
+  .brand{
+    font-size:13px;
+    letter-spacing:0.02em;
+    color:var(--muted);
+    line-height:1.5;
+  }
+  .brand b{
+    color:var(--text);
+    font-weight:600;
+  }
+  .dot-legend{
+    display:flex;
+    gap:10px;
+    font-size:11px;
+    color:var(--muted);
+    margin-top:6px;
+  }
+  .swatch{
+    display:inline-block;
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    margin-right:4px;
+    vertical-align:middle;
+  }
+  .status{
+    position:absolute;
+    bottom:22px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:13px;
+    color:var(--muted);
+    background:rgba(13,17,23,0.85);
+    padding:8px 16px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    pointer-events:auto;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .dotpulse{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--muted);
+  }
+  .dotpulse.live{
+    background:var(--cyan);
+    box-shadow:0 0 8px var(--cyan);
+    animation:pulse 1.4s infinite;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1;}
+    50%{opacity:0.35;}
+  }
+  button{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--text);
+    font-size:12px;
+    padding:6px 12px;
+    border-radius:20px;
+    cursor:pointer;
+    pointer-events:auto;
+  }
+  button:hover{
+    border-color:var(--cyan);
+    color:var(--cyan);
+  }
+  .controls{
+    position:absolute;
+    top:18px;
+    right:18px;
+    display:flex;
+    gap:8px;
+    pointer-events:auto;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div class="hud">
+    <div class="brand">
+      <b>FACE · DOT · ART</b>
+      <div class="dot-legend">
+        <span><span class="swatch" style="background:var(--cyan)"></span>contour</span>
+        <span><span class="swatch" style="background:var(--magenta)"></span>eyes/brows</span>
+        <span><span class="swatch" style="background:var(--yellow)"></span>lips</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="status" id="status">
+    <span class="dotpulse" id="pulse"></span>
+    <span id="statusText">Starting camera…</span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusText = document.getElementById('statusText');
+const pulse = document.getElementById('pulse');
+
+const LIPS = new Set([61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,185,40,39,37,0,267,269,270,409,415,310,311,312,13,82,81,42,183,78]);
+const EYES_BROWS = new Set([33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173,
+  263,249,390,373,374,380,381,382,362,466,388,387,386,385,384,398,
+  70,63,105,66,107,55,65,52,53,46,
+  336,296,334,293,300,276,283,282,295,285]);
+
+function colorFor(idx){
+  if(LIPS.has(idx)) return '#ffd23f';
+  if(EYES_BROWS.has(idx)) return '#ff3d9a';
+  return '#28e0d0';
+}
+
+function resizeCanvas(){
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+}
+
+function onResults(results){
+  if(canvas.width !== video.videoWidth || canvas.height !== video.videoHeight){
+    resizeCanvas();
+  }
+  ctx.save();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#05070a';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.translate(canvas.width,0);
+  ctx.scale(-1,1);
+
+  if(results.multiFaceLandmarks && results.multiFaceLandmarks.length){
+    pulse.classList.add('live');
+    statusText.textContent = 'Face locked — ' + results.multiFaceLandmarks.length + ' face(s) tracked';
+
+    for(const landmarks of results.multiFaceLandmarks){
+      for(let i=0;i<landmarks.length;i++){
+        const lm = landmarks[i];
+        const x = lm.x * canvas.width;
+        const y = lm.y * canvas.height;
+        const col = colorFor(i);
+        ctx.beginPath();
+        ctx.arc(x,y, 1.6, 0, Math.PI*2);
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 4;
+        ctx.fill();
+      }
+    }
+  } else {
+    pulse.classList.remove('live');
+    statusText.textContent = 'No face detected — face the camera';
+  }
+  ctx.restore();
+}
+
+const faceMesh = new FaceMesh({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+faceMesh.setOptions({
+  maxNumFaces: 2,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+faceMesh.onResults(onResults);
+
+async function start(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false});
+    video.srcObject = stream;
+    await video.play();
+    resizeCanvas();
+    statusText.textContent = 'Looking for a face…';
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await faceMesh.send({image: video}); },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  }catch(err){
+    statusText.textContent = 'Camera access denied or unavailable: ' + err.message;
+  }
+}
+
+start();
+</script>
+</body>
+</html>
