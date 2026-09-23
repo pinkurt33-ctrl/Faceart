@@ -2,12 +2,15 @@ package com.pinku.facedotart
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
+import android.text.method.ScrollingMovementMethod
 import android.view.View
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -23,6 +26,28 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Crash catcher: agar app crash hoti hai, agli baar khulte hi error text dikhayega
+        val prefs = getSharedPreferences("crash", MODE_PRIVATE)
+        Thread.setDefaultUncaughtExceptionHandler { _, e ->
+            prefs.edit().putString("last_crash", e.stackTraceToString()).apply()
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+
+        val lastCrash = prefs.getString("last_crash", null)
+        if (lastCrash != null) {
+            prefs.edit().remove("last_crash").apply()
+            val tv = TextView(this)
+            tv.text = "LAST CRASH:\n\n$lastCrash"
+            tv.setTextColor(Color.WHITE)
+            tv.setBackgroundColor(Color.BLACK)
+            tv.textSize = 12f
+            tv.setPadding(24, 48, 24, 24)
+            tv.movementMethod = ScrollingMovementMethod()
+            setContentView(tv)
+            return
+        }
+
         setContentView(R.layout.activity_main)
 
         window.decorView.systemUiVisibility = (
